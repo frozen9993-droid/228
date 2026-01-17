@@ -67,28 +67,47 @@ jobs:
       with:
         fetch-depth: 0
 
+    # Check if .NET project files exist
+    - name: Check for .NET project files
+      id: check_dotnet
+      shell: pwsh
+      run: |
+        $projectFiles = Get-ChildItem -Path . -Recurse -Include *.csproj,*.sln,*.vbproj,*.fsproj -ErrorAction SilentlyContinue
+        if ($projectFiles.Count -gt 0) {
+          echo "has_dotnet_files=true" >> $env:GITHUB_OUTPUT
+          Write-Host "Found .NET project files"
+        } else {
+          echo "has_dotnet_files=false" >> $env:GITHUB_OUTPUT
+          Write-Host "No .NET project files found - skipping .NET build steps"
+        }
+
     # Install the .NET Core workload
     - name: Install .NET Core
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
 
     # Add  MSBuild to the PATH: https://github.com/microsoft/setup-msbuild
     - name: Setup MSBuild.exe
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       uses: microsoft/setup-msbuild@v2
 
     # Execute all unit tests in the solution
     - name: Execute unit tests
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       run: dotnet test
 
     # Restore the application to populate the obj folder with RuntimeIdentifiers
     - name: Restore the application
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       run: msbuild $env:Solution_Name /t:Restore /p:Configuration=$env:Configuration
       env:
         Configuration: ${{ matrix.configuration }}
 
     # Decode the base 64 encoded pfx and save the Signing_Certificate
     - name: Decode the pfx
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       run: |
         $pfx_cert_byte = [System.Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
         $certificatePath = Join-Path -Path $env:Wap_Project_Directory -ChildPath GitHubActionsWorkflow.pfx
@@ -96,6 +115,7 @@ jobs:
 
     # Create the app package by building and packaging the Windows Application Packaging project
     - name: Create the app package
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       run: msbuild $env:Wap_Project_Path /p:Configuration=$env:Configuration /p:UapAppxPackageBuildMode=$env:Appx_Package_Build_Mode /p:AppxBundle=$env:Appx_Bundle /p:PackageCertificateKeyFile=GitHubActionsWorkflow.pfx /p:PackageCertificatePassword=${{ secrets.Pfx_Key }}
       env:
         Appx_Bundle: Always
@@ -105,10 +125,12 @@ jobs:
 
     # Remove the pfx
     - name: Remove the pfx
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       run: Remove-Item -path $env:Wap_Project_Directory\GitHubActionsWorkflow.pfx
 
     # Upload the MSIX package: https://github.com/marketplace/actions/upload-a-build-artifact
     - name: Upload build artifacts
+      if: steps.check_dotnet.outputs.has_dotnet_files == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: MSIX Package
